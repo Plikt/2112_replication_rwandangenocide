@@ -1,0 +1,172 @@
+---
+title: "2112_CS130_final"
+date: "12/9/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+##Initialization Cell
+Here we load all the necessary libraries for the statistical analysis. 
+
+```{r}
+library(tidyverse)
+library(haven)
+library(dplyr)
+library(PSweight)
+library(rbounds)
+library(ggplot2)
+```
+
+##Data Loading + Cleaning
+Bringing in the data and categorizing the ages into different treatment groups. 
+
+```{r}
+
+#I included males only here - but we will probable need to include females as well
+#load the dataset available at ->
+tare_data = read_dta("C:\\Users\\desot\\D\\CS130\\jprdata.dta")
+
+#Remove any Na values. 
+tare_data <- na.omit(tare_data)
+
+#Create 5 separate treatment groups based on the age categorizations from (McDoom, 2013)
+
+tare_data <- tare_data %>% mutate(treat =
+                     case_when(tare_data$age <=15 ~ 1,
+                               tare_data$age <= 24 ~ 2, 
+                               tare_data$age <= 34 ~ 3,
+                               tare_data$age <= 44 ~ 4,
+                               tare_data$age <= 94 ~ 5)
+)
+
+tare_data <- tare_data %>% mutate(gentreat = 
+                                    case_when(tare_data$age <=24 ~ 0, 
+                                              tare_data$age <= 94 ~ 1)
+                                  )
+
+tare_data
+```
+
+## Gen Match
+
+Using genmatch to create balance on the variables. The realization is that why would we need 
+
+```{r}
+
+#Different potential ways of binding the covariates.  
+#X = cbind(tare_data$sex, tare_data$neighborhood_100m_targets, tare_data$neighborhood_200m_targets, tare_data$neighborhood_300m_targets, tare_data$neighborhood_400m_targets, tare_data$neighborhood_100m_convicts,tare_data$neighborhood_200m_convicts, tare_data$neighborhood_300m_convicts, tare_data$neighborhood_400m_convicts, tare_data$neighborhood_100m_suspects, tare_data$neighborhood_300m_suspects, tare_data$neighborhood_400m_suspects, tare_data$distance_communitycenter, tare_data$distance_mobilizer, tare_data$household_convicts, tare_data$household_suspects, tare_data$household_size, tare_data$interethnic_union)
+
+#x2 = cbind(tare_data$sex, tare_data$neighborhood_100m_convicts, tare_data$neighborhood_200m_convicts, tare_data$hhhead, tare_data$household_convicts, tare_data$household_size, tare_data$distance_mobilizer)
+
+#considered that each of the measures that occured several times at different levels would be coorelated with eachother. 
+
+X = cbind(tare_data$sex, tare_data$neighborhood_100m_targets, tare_data$neighborhood_100m_convicts, tare_data$neighborhood_100m_suspects, tare_data$distance_communitycenter, tare_data$distance_mobilizer, tare_data$household_convicts, tare_data$household_suspects, tare_data$household_size, tare_data$interethnic_union)
+
+
+#performs the genetic match
+genmatch <- GenMatch(Tr = tare_data$gentreat, X = X, estimand = "ATT", caliper = 0.25, pop.size = 16, max.generations=10, wait.generations = 2)
+
+rr <- Match(Tr = tare_data$gentreat, X = X, estimand = "ATT", caliper = 0.25, Weight.matrix = genmatch)
+
+mb <- MatchBalance(tare_data$gentreat ~ tare_data$sex + tare_data$neighborhood_100m_targets + tare_data$neighborhood_100m_convicts+ tare_data$neighborhood_100m_suspects+ tare_data$distance_communitycenter+ tare_data$distance_mobilizer+ tare_data$household_convicts+ tare_data$household_suspects+ tare_data$household_size+ tare_data$interethnic_union, match.out = rr, nboots = 500)
+
+#mb <- MatchBalance(tare_data$gentreat ~ tare_data$sex + tare_data$neighborhood_100m_targets + tare_data$neighborhood_200m_targets + tare_data$neighborhood_300m_targets + tare_data$neighborhood_400m_targets + tare_data$neighborhood_100m_convicts + tare_data$neighborhood_200m_convicts + tare_data$neighborhood_300m_convicts + tare_data$neighborhood_400m_convicts + tare_data$neighborhood_100m_suspects + tare_data$neighborhood_300m_suspects + tare_data$neighborhood_400m_suspects + tare_data$distance_communitycenter + tare_data$distance_mobilizer + tare_data$household_convicts + tare_data$household_suspects + tare_data$household_size + tare_data$interethnic_union, match.out = rr, nboots=500)
+
+matchoutcome<-Match(Y = tare_data$convicted, Tr = tare_data$gentreat, X = X, replace = TRUE, Weight.matrix = genmatch)
+
+summary(matchoutcome)
+
+
+```
+
+
+```{r}
+#sensitivity analysis
+senstest <- psens(matchoutcome, Gamma =5, GammaInc = 0.1)
+senstest
+hlsens(matchoutcome, Gamma=2, GammaInc=.01, .1)
+```
+
+
+```{r}
+
+
+#the 
+
+ps.mult <- tare_data$treat ~ tare_data$sex + tare_data$neighborhood_100m_convicts + tare_data$neighborhood_200m_convicts + tare_data$hhhead+ tare_data$household_convicts + tare_data$household_size + tare_data$distance_mobilizer
+
+
+#bal.mult <- SumStat(ps.formula = ps.mult, data = tare_data, weight=c("IPW","overlap","treated","entropy","matching"))
+
+#plot(bal.mult, type = "density")
+
+# NOT RUN {
+data("psdata")
+# the propensity model
+ps.formula<-trt~cov1+cov2+cov3+cov4+cov5+cov6
+
+# using SumStat to estimate propensity scores
+msstat <- SumStat(ps.formula, trtgrp="2", data=psdata,
+   weight=c("IPW","overlap","treated","entropy","matching"))
+#summary(msstat)
+
+# importing user-supplied propensity scores "e.h"
+fit <- nnet::multinom(formula=ps.formula, data=psdata, maxit=500, trace=FALSE)
+e.h <- fit$fitted.values
+varname <- c("cov1","cov2","cov3","cov4","cov5","cov6")
+msstat0 <- SumStat(zname="trt", xname=varname, data=psdata, ps.estimate=e.h,
+   trtgrp="2",  weight=c("IPW","overlap","treated","entropy","matching"))
+summary(msstat0)
+
+# }
+
+#log odds would need to be 2.1 times higher due to an unobserved covariate to change the inference. ()
+
+```
+```{r}
+qplot(tare_data[tare_data$convicted == 1,]$age, geom="histogram") 
+
+qplot(tare_data[tare_data$convicted == 0,]$age, geom="histogram") 
+
+range(tare_data[tare_data$convicted == 1,]$age)
+
+```
+
+
+```{Propensity score matching}
+
+glm_prop <- glm(Data_males$D ~ Data_males$neighborhood_100m_targets + Data_males$neighborhood_200m_targets + Data_males$neighborhood_300m_targets + Data_males$neighborhood_400m_targets + Data_males$neighborhood_100m_convicts + Data_males$neighborhood_200m_convicts + Data_males$neighborhood_300m_convicts + Data_males$neighborhood_400m_convicts + Data_males$neighborhood_100m_suspects + Data_males$neighborhood_300m_suspects + Data_males$neighborhood_400m_suspects + Data_males$distance_communitycenter + Data_males$distance_mobilizer + Data_males$household_convicts + Data_males$household_suspects + Data_males$household_size + Data_males$interethnic_union, family = binomial, data = Data_males)
+
+Data_males$ps <- predict(glm_prop, type="response")
+
+rr <- Match(Y = Data_males$convicted, Tr = Data_males$D, X = Data_males$ps, M = 1)
+
+mb <- MatchBalance(Data_males$D ~ Data_males$neighborhood_100m_targets + Data_males$neighborhood_200m_targets + Data_males$neighborhood_300m_targets + Data_males$neighborhood_400m_targets + Data_males$neighborhood_100m_convicts + Data_males$neighborhood_200m_convicts + Data_males$neighborhood_300m_convicts + Data_males$neighborhood_400m_convicts + Data_males$neighborhood_100m_suspects + Data_males$neighborhood_300m_suspects + Data_males$neighborhood_400m_suspects + Data_males$distance_communitycenter + Data_males$distance_mobilizer + Data_males$household_convicts + Data_males$household_suspects + Data_males$household_size + Data_males$interethnic_union, match.out = rr, nboots=500)
+```
+
+```{Continue - prop. score matching}
+
+
+
+```
+
+```{r}
+#~Replication for 100 m neighborhood. 
+
+
+
+
+```
+
+
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+
+
