@@ -18,6 +18,7 @@ library(dplyr)
 library(PSweight)
 library(rbounds)
 library(ggplot2)
+library(sensemakr)
 ```
 
 ##Data Loading + Cleaning
@@ -29,6 +30,7 @@ Bringing in the data and categorizing the ages into different treatment groups.
 #load the dataset available at ->
 tare_data = read_dta("C:\\Users\\desot\\D\\CS130\\jprdata.dta")
 
+tare_data <- data.frame(tare_data)
 #Remove any Na values. 
 tare_data <- na.omit(tare_data)
 
@@ -48,125 +50,72 @@ tare_data <- tare_data %>% mutate(gentreat =
                                   )
 
 tare_data
+
 ```
 
-## Gen Match
+##Replication 
 
-Using genmatch to create balance on the variables. The realization is that why would we need 
+```{r}
+#this cleans the data removing everyone above 15 and with an ethnicity of Hutu
+clean_tare <- tare_data[tare_data$age >=15 & tare_data$ethnicity == 0 , ]
+
+#the model that they developed 
+logmodel <- glm(convicted ~ sex + age + age_squared + neighborhood_100m_targets + slope + distance_communitycenter + distance_mobilizer + neighborhood_100m_convicts + household_convicts + hhhead + household_size + interethnic_union + elevation + popdensity100m2, data = clean_tare, family = binomial)
+
+#summary of the log model
+summary(logmodel)
+
+#Logs odd ratio of the model
+exp(coefficients(logmodel))
+
+```
+
+##Creating the logistic model and conducting the sensitivity analysis
+This is 
 
 ```{r}
 
-#Different potential ways of binding the covariates.  
-#X = cbind(tare_data$sex, tare_data$neighborhood_100m_targets, tare_data$neighborhood_200m_targets, tare_data$neighborhood_300m_targets, tare_data$neighborhood_400m_targets, tare_data$neighborhood_100m_convicts,tare_data$neighborhood_200m_convicts, tare_data$neighborhood_300m_convicts, tare_data$neighborhood_400m_convicts, tare_data$neighborhood_100m_suspects, tare_data$neighborhood_300m_suspects, tare_data$neighborhood_400m_suspects, tare_data$distance_communitycenter, tare_data$distance_mobilizer, tare_data$household_convicts, tare_data$household_suspects, tare_data$household_size, tare_data$interethnic_union)
-
-#x2 = cbind(tare_data$sex, tare_data$neighborhood_100m_convicts, tare_data$neighborhood_200m_convicts, tare_data$hhhead, tare_data$household_convicts, tare_data$household_size, tare_data$distance_mobilizer)
-
-#considered that each of the measures that occured several times at different levels would be coorelated with eachother. 
-
-X = cbind(tare_data$sex, tare_data$neighborhood_100m_targets, tare_data$neighborhood_100m_convicts, tare_data$neighborhood_100m_suspects, tare_data$distance_communitycenter, tare_data$distance_mobilizer, tare_data$household_convicts, tare_data$household_suspects, tare_data$household_size, tare_data$interethnic_union)
+#subsetted data removes any columns that we werent using in our regression analysis
+subsetted_data <- subset(clean_tare, select = c(age, age_squared, neighborhood_100m_targets, convicted, sex, distance_communitycenter, distance_mobilizer, suspect, neighborhood_100m_convicts, neighborhood_100m_suspects, hhhead, household_convicts, household_suspects, household_size,  popdensity100m2, ethnicity))
 
 
-#performs the genetic match
-genmatch <- GenMatch(Tr = tare_data$gentreat, X = X, estimand = "ATT", caliper = 0.25, pop.size = 16, max.generations=10, wait.generations = 2)
 
-rr <- Match(Tr = tare_data$gentreat, X = X, estimand = "ATT", caliper = 0.25, Weight.matrix = genmatch)
+#correlation to ensure none of the selected variables are co-linear 
+tare_cor <- cor(subsetted_data, method = c("pearson"))
 
-mb <- MatchBalance(tare_data$gentreat ~ tare_data$sex + tare_data$neighborhood_100m_targets + tare_data$neighborhood_100m_convicts+ tare_data$neighborhood_100m_suspects+ tare_data$distance_communitycenter+ tare_data$distance_mobilizer+ tare_data$household_convicts+ tare_data$household_suspects+ tare_data$household_size+ tare_data$interethnic_union, match.out = rr, nboots = 500)
+#model from above
+logmodel2 <- glm(convicted ~ sex + age + age_squared + neighborhood_100m_targets + slope + distance_communitycenter + distance_mobilizer + neighborhood_100m_convicts + household_convicts + hhhead + household_size + interethnic_union + elevation + popdensity100m2, data = clean_tare)
 
-#mb <- MatchBalance(tare_data$gentreat ~ tare_data$sex + tare_data$neighborhood_100m_targets + tare_data$neighborhood_200m_targets + tare_data$neighborhood_300m_targets + tare_data$neighborhood_400m_targets + tare_data$neighborhood_100m_convicts + tare_data$neighborhood_200m_convicts + tare_data$neighborhood_300m_convicts + tare_data$neighborhood_400m_convicts + tare_data$neighborhood_100m_suspects + tare_data$neighborhood_300m_suspects + tare_data$neighborhood_400m_suspects + tare_data$distance_communitycenter + tare_data$distance_mobilizer + tare_data$household_convicts + tare_data$household_suspects + tare_data$household_size + tare_data$interethnic_union, match.out = rr, nboots=500)
-
-matchoutcome<-Match(Y = tare_data$convicted, Tr = tare_data$gentreat, X = X, replace = TRUE, Weight.matrix = genmatch)
-
-summary(matchoutcome)
+#Chosen logistic model
+convict1 <- glm(convicted ~ age_squared + popdensity100m2 + distance_communitycenter + distance_mobilizer + neighborhood_100m_convicts + neighborhood_100m_targets + household_convicts + hhhead, data = clean_tare, family = binomial)
 
 
-```
+convict2 <- lm(convicted ~ age_squared + popdensity100m2 + distance_communitycenter + distance_mobilizer + neighborhood_100m_convicts + neighborhood_100m_targets + household_convicts + hhhead, data = clean_tare)
 
 
-```{r}
-#sensitivity analysis
-senstest <- psens(matchoutcome, Gamma =5, GammaInc = 0.1)
-senstest
-hlsens(matchoutcome, Gamma=2, GammaInc=.01, .1)
-```
 
+sensitivity1 <- sensemakr(model = logmodel2, 
+                         treatment = "neighborhood_100m_convicts",
+                         benchmark_covariates = c("household_convicts"),
+                         kd = 1:3)
 
-```{r}
+sensitivity <- sensemakr(model = convict2, 
+                         treatment = "neighborhood_100m_convicts",
+                         benchmark_covariates = c("household_convicts", "hhhead"),
+                         kd = 1:3)
 
+summary(sensitivity1)
+plot(sensitivity1)
 
-#the 
+summary(sensitivity)
+plot(sensitivity)
+#odds.ratio(convict, level = 0.95)
+summary(convict2)
+#exp(coefficients(convict))
 
-ps.mult <- tare_data$treat ~ tare_data$sex + tare_data$neighborhood_100m_convicts + tare_data$neighborhood_200m_convicts + tare_data$hhhead+ tare_data$household_convicts + tare_data$household_size + tare_data$distance_mobilizer
-
-
-#bal.mult <- SumStat(ps.formula = ps.mult, data = tare_data, weight=c("IPW","overlap","treated","entropy","matching"))
-
-#plot(bal.mult, type = "density")
-
-# NOT RUN {
-data("psdata")
-# the propensity model
-ps.formula<-trt~cov1+cov2+cov3+cov4+cov5+cov6
-
-# using SumStat to estimate propensity scores
-msstat <- SumStat(ps.formula, trtgrp="2", data=psdata,
-   weight=c("IPW","overlap","treated","entropy","matching"))
-#summary(msstat)
-
-# importing user-supplied propensity scores "e.h"
-fit <- nnet::multinom(formula=ps.formula, data=psdata, maxit=500, trace=FALSE)
-e.h <- fit$fitted.values
-varname <- c("cov1","cov2","cov3","cov4","cov5","cov6")
-msstat0 <- SumStat(zname="trt", xname=varname, data=psdata, ps.estimate=e.h,
-   trtgrp="2",  weight=c("IPW","overlap","treated","entropy","matching"))
-summary(msstat0)
-
-# }
-
-#log odds would need to be 2.1 times higher due to an unobserved covariate to change the inference. ()
+summary(lm(convicted ~ household_convicts, data = clean_tare))
+nrow(tare_data[tare_data$interethnic_union == 1,])
 
 ```
-```{r}
-qplot(tare_data[tare_data$convicted == 1,]$age, geom="histogram") 
-
-qplot(tare_data[tare_data$convicted == 0,]$age, geom="histogram") 
-
-range(tare_data[tare_data$convicted == 1,]$age)
-
-```
-
-
-```{Propensity score matching}
-
-glm_prop <- glm(Data_males$D ~ Data_males$neighborhood_100m_targets + Data_males$neighborhood_200m_targets + Data_males$neighborhood_300m_targets + Data_males$neighborhood_400m_targets + Data_males$neighborhood_100m_convicts + Data_males$neighborhood_200m_convicts + Data_males$neighborhood_300m_convicts + Data_males$neighborhood_400m_convicts + Data_males$neighborhood_100m_suspects + Data_males$neighborhood_300m_suspects + Data_males$neighborhood_400m_suspects + Data_males$distance_communitycenter + Data_males$distance_mobilizer + Data_males$household_convicts + Data_males$household_suspects + Data_males$household_size + Data_males$interethnic_union, family = binomial, data = Data_males)
-
-Data_males$ps <- predict(glm_prop, type="response")
-
-rr <- Match(Y = Data_males$convicted, Tr = Data_males$D, X = Data_males$ps, M = 1)
-
-mb <- MatchBalance(Data_males$D ~ Data_males$neighborhood_100m_targets + Data_males$neighborhood_200m_targets + Data_males$neighborhood_300m_targets + Data_males$neighborhood_400m_targets + Data_males$neighborhood_100m_convicts + Data_males$neighborhood_200m_convicts + Data_males$neighborhood_300m_convicts + Data_males$neighborhood_400m_convicts + Data_males$neighborhood_100m_suspects + Data_males$neighborhood_300m_suspects + Data_males$neighborhood_400m_suspects + Data_males$distance_communitycenter + Data_males$distance_mobilizer + Data_males$household_convicts + Data_males$household_suspects + Data_males$household_size + Data_males$interethnic_union, match.out = rr, nboots=500)
-```
-
-```{Continue - prop. score matching}
-
-
-
-```
-
-```{r}
-#~Replication for 100 m neighborhood. 
-
-
-
-
-```
-
-
-
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
-
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
-
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
 
 
