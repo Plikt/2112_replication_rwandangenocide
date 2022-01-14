@@ -1,0 +1,163 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+
+##LIBRARY LOADING
+
+```{r}
+library(tidyverse)
+library(ggplot2)
+library(gplots)
+library(ggpubr)
+```
+
+##DATA LOADING AND NOTEBOOK SET UP 
+
+```{r}
+
+#Load the main raw dataset
+sg_data <- read.csv("C:\\Users\\desot\\D\\20211218_NS166_project\\20211212_speciesrichdata.csv")
+
+#data cleaning and conversion
+sg_data$richness <- as.numeric(sg_data$richness)
+sg_data$ï..date <- as.factor(sg_data$ï..date)
+sg_data <- sg_data[-c(42,49,162,204,272),]
+sg_data <- sg_data[sg_data$treat !="AP",]
+
+#display the species data
+head(sg_data)
+
+
+#note on interpreting this data set. For ease of reading I have converted C to LB which indicates (L)eave all the biomass and (B)urn and 
+#RL to CN which indicates (C)ut the silvergrass and (B)urn. 
+
+
+```
+
+##DATA CLEAN UP 
+
+```{r}
+#Separates the treatment variables for easy comparison
+
+CB <- sg_data[sg_data$treat =="CB",]
+NB <- sg_data[sg_data$treat =="NB",]
+LB <- sg_data[sg_data$treat =="LB",]
+
+
+
+```
+
+#T-TESTS
+
+```{r}
+
+#understanding richness for burn, nonburn, and cut and burn
+bvnb <- t.test(CB$richness, NB$richness)
+bvc <- t.test(CB$richness, LB$richness)
+cvnb <- t.test(LB$richness, NB$richness)
+
+bvnb
+bvc
+cvnb
+
+#t-tests for height across groups
+heightbnb <- t.test(CB$avghcm, NB$avghcm)
+heightbc <- t.test(CB$avghcm, LB$avghcm)
+heighttc <- t.test(LB$avghcm, NB$avghcm)
+
+heightbc
+heightbnb
+heighttc
+
+#but we shouldn't use these -> realization I had. We have too many comparisions meaning error compounds and needs to be adjusted. 
+#To deal with this we would do Bonferroni's or whatever but bc there are so many... seems like a lot. 
+
+
+```
+
+##ANOVA becuase I'm a bit dumb :)
+
+```{r}
+
+#An anova on the species richness - it ended up being significant which is interesting
+richness <- aov(richness ~ treat, data = sg_data[sg_data$ï..date == "20130614",])
+summary(richness)
+
+#Just because I was trying to figure out the dates I needed to use. 
+unique(sg_data[c("ï..date")])
+
+#Anova for each date with the height
+height1 <- aov(avghcm ~ treat, data = sg_data[sg_data$ï..date == "20130614",])
+summary(height1)
+
+height2 <- aov(avghcm ~ treat, data = sg_data[sg_data$ï..date == "20130707",])
+summary(height2)
+
+height3 <- aov(avghcm ~ treat, data = sg_data[sg_data$ï..date == "20130817",])
+summary(height3)
+
+height4 <- aov(avghcm ~ treat, data = sg_data[sg_data$ï..date == "20130926",])
+summary(height4)
+
+
+#This displays the differences for the individual comparisions. 
+TukeyHSD(height4)
+
+
+#Coverage
+cov1 <- aov(coverage ~ treat, data = sg_data[sg_data$ï..date == "20130614",])
+summary(height1)
+
+cov2 <- aov(coverage ~ treat, data = sg_data[sg_data$ï..date == "20130707",])
+summary(height2)
+
+cov3 <- aov(coverage ~ treat, data = sg_data[sg_data$ï..date == "20130817",])
+summary(height3)
+
+cov4 <- aov(coverage ~ treat, data = sg_data[sg_data$ï..date == "20130926",])
+
+
+TukeyHSD(cov1)
+TukeyHSD(cov2)
+TukeyHSD(cov3)
+TukeyHSD(cov4)
+
+#Demonstrates all the means by treatment type and date 
+aggregate(x = sg_data,                                       # Specify data column
+          by = list(sg_data$treat, sg_data$ï..date),         # Specify group indicator
+          FUN = mean)                                        # Specify function (i.e. mean)
+```
+
+#PLOTS
+```{r}
+
+
+#Plots plots plots - plots fired!
+
+#this ones demonstrates the heights over time for each of the three treatments
+ggline(sg_data, x = "ï..date", y = "avghcm", 
+       add = c("mean_se"),
+       ylab = "Mean heights",
+       xlab = "Dates",
+       title = "Mean Silvergrass heights over time",
+       color = "treat", palette = "jco")
+
+#demonstrates the coverage over time for each of the three treatments. 
+ggline(sg_data, x = "ï..date", y = "coverage", 
+       add = c("mean_se"),
+       ylab = "Mean Coverage",
+       xlab = "Dates",
+       title = "Mean Silvergrass coverage over time",
+       color = "treat", palette = "jco")
+
+
+```
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Ctrl+Shift+K* to preview the HTML file).
+
+The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
